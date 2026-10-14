@@ -13,17 +13,28 @@ form?.addEventListener('submit', async (event) => {
   form.querySelector('button').disabled = true;
 
   let drawn;
+  let trouble = 'Det gikk ikke å trekke akkurat nå. Prøv igjen om litt.';
   try {
     const response = await fetch(form.action, {
       method: 'POST',
       headers: { Accept: 'application/json' },
       body: new URLSearchParams(new FormData(form)),
     });
-    if (!response.ok) throw new Error(`The draw was answered ${response.status}`);
-    drawn = await response.json();
+    const answer = await response.json();
+    if (response.ok) drawn = answer;
+    else trouble = answer.message ?? trouble;
   } catch {
-    // Someone else drew first, or the server is away. The page itself says which.
-    location.reload();
+    // The server is away, or something other than the server answered. `trouble` stays as it is.
+  }
+
+  if (!drawn) {
+    // Refused, for instance because someone else drew first: the server says why. The button is for trying again.
+    const note = stage.querySelector('.message') ?? document.createElement('p');
+    note.className = 'message';
+    note.setAttribute('role', 'alert');
+    note.textContent = trouble;
+    form.prepend(note);
+    form.querySelector('button').disabled = false;
     return;
   }
 

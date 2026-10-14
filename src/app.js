@@ -72,7 +72,8 @@ export function createApp({ store, now = () => new Date() }) {
     const showDraw = (week, status = 200, message) => {
       const entry = isWeekId(week) ? describe(store.state, week) : null;
       if (!entry?.draw) return notFound();
-      send(status, drawPage({ ...entry, message }));
+      const over = !entry.booking && week < today();
+      send(over ? 409 : status, drawPage({ ...entry, message, over, name }));
     };
 
     if (request.headers.host !== undefined && !OWN_HOST.test(request.headers.host)) {
