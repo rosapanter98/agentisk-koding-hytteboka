@@ -41,12 +41,12 @@ export function firstState(now = new Date()) {
 /** A name as someone typed it, tidied. Empty when it cannot be used as a name. */
 export function readName(text) {
   const name = tidy(text);
-  return name.length <= NAME_LENGTH ? name : '';
+  return name.length <= NAME_LENGTH && !isBlank(name) ? name : '';
 }
 
-/** Whether a text is nothing but blanks and characters that cannot be seen. */
+/** Whether a text has nothing to be called by: no letter or digit once it is tidied. */
 export function isBlank(text) {
-  return tidy(text) === '';
+  return !/[\p{L}\p{N}]/u.test(tidy(text));
 }
 
 export function sameName(a, b) {

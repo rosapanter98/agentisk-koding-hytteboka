@@ -107,10 +107,12 @@ describe('the calendar', () => {
     assert.match(forgotten.headers.get('set-cookie'), /^navn=; Path=\/; Max-Age=0/);
   });
 
-  test('a name of nothing but characters that cannot be seen is no name, so it is forgotten', async () => {
-    const response = await ola.post('/navn', { navn: '​⠀' });
-    assert.equal(response.status, 303);
-    assert.match(response.headers.get('set-cookie'), /^navn=; Path=\/; Max-Age=0/);
+  test('a name with no letter or digit in it is no name, so it is forgotten', async () => {
+    for (const navn of ['​⠀', '́', '. - .']) {
+      const response = await ola.post('/navn', { navn });
+      assert.equal(response.status, 303);
+      assert.match(response.headers.get('set-cookie'), /^navn=; Path=\/; Max-Age=0/);
+    }
   });
 
   test('turns away a name that is too long, and keeps what was typed', async () => {

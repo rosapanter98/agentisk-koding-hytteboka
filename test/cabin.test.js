@@ -70,6 +70,8 @@ describe('booking a week', () => {
     refused(state, book, as('', AUTUMN), /Skriv navnet ditt/, 400);
     refused(state, book, as('   ', AUTUMN), /Skriv navnet ditt/, 400);
     refused(state, book, as('​⠀', AUTUMN), /Skriv navnet ditt/, 400);
+    refused(state, book, as('́', AUTUMN), /Skriv navnet ditt/, 400);
+    refused(state, book, as('. - .', AUTUMN), /Skriv navnet ditt/, 400);
     refused(state, book, as('x'.repeat(61), AUTUMN), /Skriv navnet ditt/, 400);
   });
 
