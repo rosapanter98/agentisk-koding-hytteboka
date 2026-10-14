@@ -3,7 +3,8 @@
 
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, beforeEach, describe, test } from 'node:test';
@@ -62,6 +63,32 @@ const kari = person('Kari Hansen');
 const per = person('Per Olsen');
 const visitor = person('');
 const book = () => JSON.parse(readFileSync(file, 'utf8'));
+
+/** A request written out as it is sent: fetch tidies the path and keeps the Host to itself, this does neither. */
+function raw(path, { method = 'GET', headers = {} } = {}) {
+  const { hostname, port } = new URL(origin);
+  return new Promise((resolve, reject) => {
+    const request = httpRequest({ host: hostname, port, path, method, headers, agent: false }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () =>
+        resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks).toString('utf8') }));
+    });
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+/** Whatever comes back for text sent down a bare socket, for a request node:http will not write. */
+function overSocket(text) {
+  return new Promise((resolve, reject) => {
+    const socket = connect(new URL(origin).port, '127.0.0.1', () => socket.end(text));
+    let answer = '';
+    socket.on('data', (chunk) => (answer += chunk));
+    socket.on('end', () => resolve(answer));
+    socket.on('error', reject);
+  });
+}
 
 /** The card of one week on the calendar, as text without tags. */
 async function card(who, week) {
@@ -359,6 +386,125 @@ describe('what the server is careful about', () => {
     const missing = await visitor.get('/server.js');
     assert.equal(missing.status, 404);
     assert.match(await missing.text(), /Den siden finnes ikke/);
-    assert.equal((await visitor.get('/../package.json')).status, 404);
+  });
+
+  test('no way of writing a path reaches a file outside the public ones', async () => {
+    const paths = [
+      '/../package.json',
+      '/%2e%2e/package.json',
+      '/..%2fpackage.json',
+      '/%2e%2e%2fpackage.json',
+      '/..%5cpackage.json',
+      '/stil.css/../package.json',
+      '/../src/app.js',
+      '/../server.js',
+    ];
+    const seen = [];
+    const listen = (request) => seen.push(request.url);
+    server.on('request', listen);
+    const answers = [];
+    for (const path of paths) answers.push(await raw(path));
+    server.off('request', listen);
+
+    assert.deepEqual(seen, paths, 'the server must get the paths as they were sent');
+    answers.forEach((answer, index) => {
+      assert.equal(answer.status, 404, paths[index]);
+      assert.match(answer.body, /Den siden finnes ikke/, paths[index]);
+      assert.doesNotMatch(answer.body, /"engines"|createServer|createApp/, paths[index]);
+    });
+  });
+});
+
+describe('which requests the server answers', () => {
+  test('a request for another host is turned away, and nothing is changed', async () => {
+    const hosts = ['evil.example', 'evil.example:44210', 'localhost.evil.example', '127.0.0.1.evil.example',
+      'localhost@evil.example', '0.0.0.0', '[::2]'];
+    for (const host of hosts) {
+      const response = await raw('/', { headers: { Host: host } });
+      assert.equal(response.status, 421, host);
+      assert.match(response.body, /Det gikk ikke/, host);
+    }
+
+    const posted = await raw(`/uker/${AUTUMN}/book`, {
+      method: 'POST',
+      headers: { Host: 'evil.example', Cookie: 'navn=Ola%20Nordmann' },
+    });
+    assert.equal(posted.status, 421);
+    assert.deepEqual(book().bookings, {});
+  });
+
+  test('localhost, 127.0.0.1 and [::1] are answered, with any port, and so is a request with no Host', async () => {
+    for (const host of ['localhost', 'localhost:44210', 'LOCALHOST:1', '127.0.0.1', '127.0.0.1:80', '[::1]', '[::1]:44210']) {
+      assert.equal((await raw('/', { headers: { Host: host } })).status, 200, host);
+    }
+    assert.match(await overSocket('GET / HTTP/1.0\r\n\r\n'), /^HTTP\/1\.1 200 /);
+  });
+
+  test('a form that names no Sec-Fetch-Site must still say it came from this very address', async () => {
+    const path = `/uker/${AUTUMN}/book`;
+    const turnedAway = await (await ola.post(path, {}, { 'Sec-Fetch-Site': 'cross-site' })).text();
+
+    for (const from of ['http://evil.example', 'null', origin.replace('http:', 'https:'), 'http://127.0.0.1:1',
+      origin.replace('127.0.0.1', 'localhost')]) {
+      const response = await ola.post(path, {}, { Origin: from });
+      assert.equal(response.status, 403, from);
+      assert.equal(await response.text(), turnedAway, from);
+    }
+    assert.deepEqual(book().bookings, {});
+
+    assert.equal((await ola.post(path, {}, { Origin: origin })).status, 303);
+    assert.equal(book().bookings[AUTUMN].name, 'Ola Nordmann');
+    assert.equal((await kari.post('/uker/2026-W46/book')).status, 303, 'neither header, as from curl');
+  });
+
+  test('an address that cannot be read is a bad request, not a fault in the server', async () => {
+    for (const target of ['http://', '//', 'http://[']) {
+      const response = await raw(target);
+      assert.equal(response.status, 400, target);
+      assert.match(response.body, /Det gikk ikke/, target);
+    }
+  });
+
+  test('HEAD is answered as GET is, without the body', async () => {
+    const withoutDate = ({ headers: { date, ...rest } }) => rest;
+    for (const path of ['/', '/kontorsjef', '/stil.css', '/finnes-ikke']) {
+      const get = await raw(path);
+      const head = await raw(path, { method: 'HEAD' });
+
+      assert.equal(head.status, get.status, path);
+      assert.deepEqual(withoutDate(head), withoutDate(get), path);
+      assert.equal(head.headers['content-length'], String(Buffer.byteLength(get.body)), path);
+      assert.equal(head.body, '', path);
+    }
+
+    const head = await raw(`/uker/${AUTUMN}/book`, { method: 'HEAD', headers: { Cookie: 'navn=Ola%20Nordmann' } });
+    assert.equal(head.status, 404);
+    assert.deepEqual(book().bookings, {});
+  });
+
+  test('a method other than GET, HEAD and POST is told which ones are used', async () => {
+    for (const method of ['PUT', 'DELETE', 'PATCH', 'OPTIONS']) {
+      for (const path of ['/', `/uker/${AUTUMN}/book`]) {
+        const response = await raw(path, { method, headers: { Cookie: 'navn=Ola%20Nordmann' } });
+        assert.equal(response.status, 405, `${method} ${path}`);
+        assert.equal(response.headers.allow, 'GET, HEAD, POST', `${method} ${path}`);
+        assert.match(response.body, /Det gikk ikke/, `${method} ${path}`);
+      }
+    }
+    assert.deepEqual(book().bookings, {});
+  });
+
+  test('one slash at the end of an address makes no difference', async () => {
+    const plain = await visitor.get('/kontorsjef');
+    const slashed = await visitor.get('/kontorsjef/');
+    assert.equal(slashed.status, 200);
+    assert.equal(await slashed.text(), await plain.text());
+    assert.equal((await visitor.get('/stil.css/')).status, 200);
+
+    assert.equal((await ola.post(`/uker/${AUTUMN}/book/`)).status, 303);
+    assert.equal(book().bookings[AUTUMN].name, 'Ola Nordmann');
+
+    assert.equal((await visitor.get('/kontorsjef//')).status, 404);
+    assert.equal((await visitor.get('/finnes-ikke/')).status, 404);
   });
 });

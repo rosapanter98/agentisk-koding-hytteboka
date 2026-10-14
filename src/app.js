@@ -32,16 +32,21 @@ const HEADERS = {
 
 const FORM_LIMIT = 10_000;
 
+// The server answers this machine only, so a request that names another host is a page elsewhere
+// making the browser knock here (DNS rebinding). Not sending a Host is allowed, as HTTP/1.0 does.
+const OWN_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d*)?$/i;
+
 export function createApp({ store, now = () => new Date() }) {
   const today = () => currentWeek(now());
 
   async function answer(request, response) {
-    const { pathname } = new URL(request.url, 'http://hytteboka');
     const name = nameOf(request);
     let match;
 
+    // Content-Length is set so that a HEAD, which sends no body, still says what a GET would.
     const send = (status, body, type = HTML, more = {}) => {
-      response.writeHead(status, { ...HEADERS, 'Content-Type': type, ...more });
+      const length = Buffer.byteLength(body);
+      response.writeHead(status, { ...HEADERS, 'Content-Type': type, 'Content-Length': length, ...more });
       response.end(body);
     };
     const goTo = (address, more = {}) => {
@@ -70,7 +75,26 @@ export function createApp({ store, now = () => new Date() }) {
       send(status, drawPage({ ...entry, message }));
     };
 
-    if (request.method === 'GET') {
+    if (request.headers.host !== undefined && !OWN_HOST.test(request.headers.host)) {
+      return send(421, messagePage({ title: 'Det gikk ikke', text: 'Hytteboka svarer bare på localhost.', name }));
+    }
+
+    // One slash at the end of an address, but not the front page's, is left out.
+    let pathname;
+    try {
+      pathname = new URL(request.url, 'http://hytteboka').pathname.replace(/([^/])\/$/, '$1');
+    } catch {
+      return send(400, messagePage({ title: 'Det gikk ikke', text: 'Adressen kunne ikke leses.', name }));
+    }
+
+    // A HEAD is answered as a GET is: node sends no body for it.
+    const method = request.method === 'HEAD' ? 'GET' : request.method;
+    if (method !== 'GET' && method !== 'POST') {
+      const text = 'Hytteboka tar bare imot GET, HEAD og POST.';
+      return send(405, messagePage({ title: 'Det gikk ikke', text, name }), HTML, { Allow: 'GET, HEAD, POST' });
+    }
+
+    if (method === 'GET') {
       if (pathname === '/') return showCalendar();
       if (pathname === '/kontorsjef') return showManager();
       if ((match = /^\/trekning\/([^/]+)$/.exec(pathname))) return showDraw(match[1]);
@@ -81,11 +105,14 @@ export function createApp({ store, now = () => new Date() }) {
       return notFound();
     }
 
-    if (request.method !== 'POST') return notFound();
-
     // A browser says where a posted form came from. One that another site made it send is turned away.
+    // When it says nothing of that, the Origin it names must be this address, which an old browser still sends.
     const from = request.headers['sec-fetch-site'];
-    if (from && from !== 'same-origin' && from !== 'none') {
+    const origin = request.headers.origin;
+    if (
+      (from && from !== 'same-origin' && from !== 'none')
+      || (!from && origin !== undefined && origin !== `http://${request.headers.host}`)
+    ) {
       return send(403, messagePage({ title: 'Det gikk ikke', text: 'Skjemaet kom ikke fra hytteboka.', name }));
     }
 
