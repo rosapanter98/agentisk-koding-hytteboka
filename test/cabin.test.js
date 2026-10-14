@@ -69,6 +69,7 @@ describe('booking a week', () => {
     const state = emptyState();
     refused(state, book, as('', AUTUMN), /Skriv navnet ditt/, 400);
     refused(state, book, as('   ', AUTUMN), /Skriv navnet ditt/, 400);
+    refused(state, book, as('​⠀', AUTUMN), /Skriv navnet ditt/, 400);
     refused(state, book, as('x'.repeat(61), AUTUMN), /Skriv navnet ditt/, 400);
   });
 
@@ -77,6 +78,13 @@ describe('booking a week', () => {
     assert.equal(sameName('Ola Nordmann', ' ola   NORDMANN '), true);
     assert.equal(sameName('Åse Ødegård', 'åse ødegård'), true);
     assert.equal(sameName('Ola Nordmann', 'Ola Normann'), false);
+  });
+
+  test('characters that cannot be seen do not make another name', () => {
+    for (const mark of ['​', '­', '‎', '﻿', '⠀', 'ㅤ']) {
+      assert.equal(readName(`Ola${mark} Nordmann${mark}`), 'Ola Nordmann');
+      assert.equal(sameName('Ola Nordmann', `Ola ${mark}Nordmann`), true);
+    }
   });
 });
 
@@ -115,6 +123,7 @@ describe('entering a draw', () => {
   test('one person has one ticket', () => {
     const state = bookWithEaster('Ola Nordmann');
     refused(state, enter, as('OLA NORDMANN', EASTER), /Du er allerede påmeldt/);
+    refused(state, enter, as('Ola​ Nordmann', EASTER), /Du er allerede påmeldt/);
   });
 
   test('someone who entered can leave again', () => {

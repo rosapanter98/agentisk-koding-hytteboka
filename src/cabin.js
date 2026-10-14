@@ -192,9 +192,11 @@ function drawProblem(state, week) {
   return null;
 }
 
+/** Text with the characters that cannot be seen taken out, and the blanks gathered into single spaces. */
 function tidy(text) {
   return String(text ?? '')
     .normalize('NFC')
+    .replace(/[\p{Default_Ignorable_Code_Point}⠀]/gu, '')
     .replace(/[\p{Cc}\s]+/gu, ' ')
     .trim();
 }
