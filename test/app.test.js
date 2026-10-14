@@ -108,7 +108,7 @@ describe('the calendar', () => {
   });
 
   test('a name with no letter or digit in it is no name, so it is forgotten', async () => {
-    for (const navn of ['​⠀', '́', '. - .']) {
+    for (const navn of ['\u200B\u2800', '́', '. - .']) {
       const response = await ola.post('/navn', { navn });
       assert.equal(response.status, 303);
       assert.match(response.headers.get('set-cookie'), /^navn=; Path=\/; Max-Age=0/);

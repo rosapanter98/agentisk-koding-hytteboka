@@ -201,7 +201,7 @@ function drawProblem(state, week) {
 function tidy(text) {
   return String(text ?? '')
     // Before NFC: a mark between a letter and its accent would otherwise keep them from joining.
-    .replace(/[\p{Default_Ignorable_Code_Point}\p{Cf}⠀]/gu, '')
+    .replace(/[\p{Default_Ignorable_Code_Point}\p{Cf}\u2800]/gu, '')
     .normalize('NFC')
     .replace(/[\p{Cc}\s]+/gu, ' ')
     .trim();
