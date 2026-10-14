@@ -164,13 +164,24 @@ describe('drawing the winner', () => {
   });
 
   test('left to itself, the draw gives everyone the same chance', () => {
-    const wins = [0, 0, 0];
-    for (let round = 0; round < 6000; round += 1) {
-      const state = bookWithEaster(...people);
-      wins[drawWinner(state, { week: EASTER, today: TODAY, now: NOW }).winner] += 1;
+    // Chi-square: how far the wins are from an even split, with 3 and then 7 tickets (2 and 6 degrees of freedom).
+    // For an even number of degrees, 2m, P(X > x) = exp(-x/2) * (1 + x/2 + ... + (x/2)^(m-1) / (m-1)!).
+    // The values below are the x where that is 5e-7, rounded up. Two checks at 5e-7 fail by chance less than
+    // once in a million runs. A draw that gives one ticket 3.2% (3 tickets) or 6% (7 tickets) more than its
+    // fair share is caught all but about once in a million runs too.
+    const critical = { 3: 29.02, 7: 39.8 };
+    for (const tickets of [3, 7]) {
+      const state = bookWithEaster(...Array.from({ length: tickets }, (_, index) => `Person ${index + 1}`));
+      const wins = new Array(tickets).fill(0);
+      for (let round = 0; round < 200_000; round += 1) {
+        delete state.bookings[EASTER];
+        wins[drawWinner(state, { week: EASTER, today: TODAY, now: NOW }).winner] += 1;
+      }
+
+      const expected = 200_000 / tickets;
+      const chiSquare = wins.reduce((sum, count) => sum + (count - expected) ** 2 / expected, 0);
+      assert.ok(chiSquare < critical[tickets], `${tickets} tickets: chi-square ${chiSquare.toFixed(1)}, wins were ${wins}`);
     }
-    // 2000 each on average. Outside 1800 to 2200 is more than five standard deviations away.
-    for (const count of wins) assert.ok(count > 1800 && count < 2200, `wins were ${wins}`);
   });
 
   test('a single ticket wins', () => {
@@ -213,6 +224,31 @@ describe('drawing the winner', () => {
     assert.equal(enter(state, as('Nina Berg', EASTER)).ok, true, 'the draw is open again');
     assert.deepEqual(draw(state, () => 2), { ok: true, winner: 2, entries: ['Kari Hansen', 'Per Olsen', 'Nina Berg'] });
     assert.equal(state.bookings[EASTER].name, 'Nina Berg');
+  });
+
+  test('a winner who gave the week up cannot enter that draw again, and the others still can', () => {
+    const state = bookWithEaster(...people);
+    draw(state, () => 0);
+    assert.equal(cancel(state, as('Ola Nordmann', EASTER)).ok, true);
+    assert.deepEqual(state.draws[EASTER].out, ['Ola Nordmann']);
+
+    refused(state, enter, as(' ola  NORDMANN ', EASTER), /Du ga fra deg uke 12 og kan ikke melde deg på trekningen om den igjen/);
+    assert.equal(enter(state, as('Nina Berg', EASTER)).ok, true);
+
+    // The next winner gives up too: both are out, and whoever is left is drawn.
+    draw(state, () => 0);
+    assert.equal(cancel(state, as('Kari Hansen', EASTER)).ok, true);
+    assert.deepEqual(state.draws[EASTER].out, ['Ola Nordmann', 'Kari Hansen']);
+    refused(state, enter, as('Kari Hansen', EASTER), /kan ikke melde deg på/);
+    refused(state, enter, as('Ola Nordmann', EASTER), /kan ikke melde deg på/);
+    assert.deepEqual(draw(state, () => 1), { ok: true, winner: 1, entries: ['Per Olsen', 'Nina Berg'] });
+  });
+
+  test('someone who only left the draw can enter again', () => {
+    const state = bookWithEaster('Ola Nordmann');
+    assert.equal(withdraw(state, as('Ola Nordmann', EASTER)).ok, true);
+    assert.equal(enter(state, as('Ola Nordmann', EASTER)).ok, true);
+    assert.equal(state.draws[EASTER].out, undefined);
   });
 });
 

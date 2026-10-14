@@ -95,7 +95,12 @@ function nameForm(typedName) {
     </form>`;
 }
 
-export function drawPage({ week, draw, booking, message }) {
+export function drawPage({ week, draw, booking, message, over = false, name }) {
+  // `over`: the week went by without a winner being drawn, so there is nothing left to do here.
+  if (over) {
+    return messagePage({ title: `${Uke(week)} er over`, text: 'Det ble aldri trukket noen vinner til denne uka.', name });
+  }
+
   const names = draw.entries.map((entry) => entry.name);
   const drawn = Boolean(booking);
 

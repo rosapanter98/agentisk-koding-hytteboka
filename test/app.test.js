@@ -266,6 +266,73 @@ describe('the draw', () => {
     assert.ok(!second.entries.includes(winner));
   });
 
+  test('a winner who gave the week up cannot enter the draw again, and the others still can', async () => {
+    await enterAll();
+    const first = await (await draw()).json();
+    const winner = first.entries[first.winner];
+    assert.equal((await person(winner).post(`/uker/${EASTER}/avbestill`)).status, 303);
+    assert.deepEqual(book().draws[EASTER].out, [winner]);
+
+    const again = await person(winner).post(`/uker/${EASTER}/meld-pa`);
+    assert.equal(again.status, 409);
+    assert.match(await again.text(), /role="alert">Du ga fra deg uke 12 og kan ikke melde deg på trekningen om den igjen\./);
+    assert.equal(book().draws[EASTER].entries.length, 2);
+
+    assert.equal((await person('Nina Berg').post(`/uker/${EASTER}/meld-pa`)).status, 303);
+    const second = await (await draw()).json();
+    assert.equal(second.entries.length, 3);
+    assert.ok(!second.entries.includes(winner));
+
+    for (const path of ['/', '/kontorsjef', `/trekning/${EASTER}`]) {
+      assert.equal((await visitor.get(path)).status, 200, path);
+    }
+  });
+
+  // The server some days later, with the same book: Easter 2027 is over.
+  const afterEaster = () => {
+    const later = new Date('2027-03-30T10:00:00Z');
+    server.app = createApp({ store: openStore(file, () => firstState(later)), now: () => later });
+  };
+
+  test('a draw nobody drew before its week was over says so, and has no button', async () => {
+    await enterAll();
+    afterEaster();
+
+    const response = await visitor.get(`/trekning/${EASTER}`);
+    const page = await response.text();
+    assert.equal(response.status, 409);
+    assert.match(page, /<h1>Uke 12 er over<\/h1>/);
+    assert.match(page, /href="\/">Til hytteboka/);
+    assert.doesNotMatch(page, /Trekk vinneren|data-draw-form|trekning\.js/);
+
+    const tried = await draw();
+    assert.equal(tried.status, 409);
+    assert.match((await tried.json()).message, /Uke 12 er over/);
+    const withoutScripts = await draw({ klar: 'ja' }, {});
+    assert.equal(withoutScripts.status, 409);
+    assert.match(await withoutScripts.text(), /<h1>Uke 12 er over<\/h1>/);
+    assert.deepEqual(book().bookings, {});
+  });
+
+  test('a draw that was drawn can still be looked at when its week is over', async () => {
+    await enterAll();
+    const drawn = await (await draw()).json();
+    afterEaster();
+
+    const response = await visitor.get(`/trekning/${EASTER}`);
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), new RegExp(`data-winner-name>${drawn.entries[drawn.winner]}<`));
+  });
+
+  test('a draw for the week we are in is not over', async () => {
+    await visitor.post('/kontorsjef/trekningsuker', { uke: '2026-W42' });
+    await ola.post('/uker/2026-W42/meld-pa');
+
+    const response = await visitor.get('/trekning/2026-W42');
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /Trekk vinneren/);
+  });
+
   test('there is no draw page for an ordinary week, or for no week', async () => {
     assert.equal((await visitor.get(`/trekning/${AUTUMN}`)).status, 404);
     assert.equal((await visitor.get('/trekning/tull')).status, 404);

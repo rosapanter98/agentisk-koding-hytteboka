@@ -3,10 +3,11 @@
 // Everything that is stored is one object:
 //
 //   bookings: { [week]: { name, at } }                       who has the cabin that week
-//   draws:    { [week]: { label, entries: [{ name, at }] } } the weeks a winner is drawn for
+//   draws:    { [week]: { label, entries: [{ name, at }], out: [name] } } the weeks a winner is drawn for
 //
 // A week has at most one booking, since bookings are kept by week.
 // A draw is done when its week has a booking: that booking is the winner, and its `at` is when it was drawn.
+// `out` is who won the week and gave it up. They cannot enter that draw again. A draw without `out` has no one out.
 //
 // Each rule takes the state and what someone wants, and either changes the state and answers
 // { ok: true }, or leaves it as it was and answers { ok: false, status, message } with words for the person.
@@ -92,7 +93,10 @@ export function cancel(state, { week, name, today }) {
 
   delete state.bookings[week];
   const draw = state.draws[week];
-  if (draw) draw.entries = draw.entries.filter((entry) => !sameName(entry.name, name));
+  if (draw) {
+    draw.entries = draw.entries.filter((entry) => !sameName(entry.name, name));
+    draw.out = [...(draw.out ?? []), booking.name];
+  }
   return done();
 }
 
@@ -101,6 +105,9 @@ export function enter(state, { week, name, today, now }) {
   if (problem) return problem;
 
   const draw = state.draws[week];
+  if (draw.out?.some((gaveUp) => sameName(gaveUp, name))) {
+    return refuse(`Du ga fra deg ${uke(week)} og kan ikke melde deg på trekningen om den igjen.`);
+  }
   if (isEntered(draw, name)) return refuse(`Du er allerede påmeldt trekningen om ${uke(week)}.`);
 
   draw.entries.push({ name: readName(name), at: now });
