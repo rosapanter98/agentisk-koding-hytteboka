@@ -41,7 +41,12 @@ export function firstState(now = new Date()) {
 /** A name as someone typed it, tidied. Empty when it cannot be used as a name. */
 export function readName(text) {
   const name = tidy(text);
-  return name.length <= NAME_LENGTH ? name : '';
+  return name.length <= NAME_LENGTH && !isBlank(name) ? name : '';
+}
+
+/** Whether a text has nothing to be called by: no letter or digit once it is tidied. */
+export function isBlank(text) {
+  return !/[\p{L}\p{N}]/u.test(tidy(text));
 }
 
 export function sameName(a, b) {
@@ -192,8 +197,11 @@ function drawProblem(state, week) {
   return null;
 }
 
+/** Text with the characters that cannot be seen taken out, and the blanks gathered into single spaces. */
 function tidy(text) {
   return String(text ?? '')
+    // Before NFC: a mark between a letter and its accent would otherwise keep them from joining.
+    .replace(/[\p{Default_Ignorable_Code_Point}\p{Cf}\u2800]/gu, '')
     .normalize('NFC')
     .replace(/[\p{Cc}\s]+/gu, ' ')
     .trim();

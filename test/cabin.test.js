@@ -69,6 +69,9 @@ describe('booking a week', () => {
     const state = emptyState();
     refused(state, book, as('', AUTUMN), /Skriv navnet ditt/, 400);
     refused(state, book, as('   ', AUTUMN), /Skriv navnet ditt/, 400);
+    refused(state, book, as('\u200B\u2800', AUTUMN), /Skriv navnet ditt/, 400);
+    refused(state, book, as('́', AUTUMN), /Skriv navnet ditt/, 400);
+    refused(state, book, as('. - .', AUTUMN), /Skriv navnet ditt/, 400);
     refused(state, book, as('x'.repeat(61), AUTUMN), /Skriv navnet ditt/, 400);
   });
 
@@ -78,9 +81,31 @@ describe('booking a week', () => {
     assert.equal(sameName('Åse Ødegård', 'åse ødegård'), true);
     assert.equal(sameName('Ola Nordmann', 'Ola Normann'), false);
   });
+
+  test('characters that cannot be seen do not make another name', () => {
+    for (const mark of ['\u200B', '\u00AD', '\u200E', '\u2060', '\u034F', '\u0600', '\uFFF9', '\u2800', '\u3164']) {
+      assert.equal(readName(`Ola${mark} Nordmann${mark}`), 'Ola Nordmann');
+      assert.equal(sameName('Ola Nordmann', `Ola ${mark}Nordmann`), true);
+    }
+    assert.equal(readName('Ola\u200BNordmann'), 'OlaNordmann', 'they are taken out, not turned into a space');
+  });
+
+  test('a mark between a letter and its accent does not make another name', () => {
+    assert.equal(sameName('Åse', 'A\u200B̊se'), true);
+    assert.equal(readName('Åse'), 'Åse');
+    const once = readName('A\u200B̊\u00AD se');
+    assert.equal(readName(once), once, 'tidying twice changes nothing more');
+  });
 });
 
 describe('giving a week up', () => {
+  test('the one who has the week can give it up, whatever hidden marks their name carries', () => {
+    const state = emptyState();
+    book(state, as('Ola Nordmann', AUTUMN));
+    assert.equal(cancel(state, as('Ola\u200B Nordmann', AUTUMN)).ok, true);
+    assert.equal(state.bookings[AUTUMN], undefined);
+  });
+
   test('the one who has the week can give it up, and then it is free', () => {
     const state = emptyState();
     book(state, as('Ola Nordmann', AUTUMN));
@@ -115,6 +140,8 @@ describe('entering a draw', () => {
   test('one person has one ticket', () => {
     const state = bookWithEaster('Ola Nordmann');
     refused(state, enter, as('OLA NORDMANN', EASTER), /Du er allerede påmeldt/);
+    refused(state, enter, as('Ola\u200B Nordmann', EASTER), /Du er allerede påmeldt/);
+    assert.equal(withdraw(state, as('Ola\u200B Nordmann', EASTER)).ok, true);
   });
 
   test('someone who entered can leave again', () => {
