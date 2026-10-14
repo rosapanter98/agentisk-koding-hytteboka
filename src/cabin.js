@@ -44,6 +44,11 @@ export function readName(text) {
   return name.length <= NAME_LENGTH ? name : '';
 }
 
+/** Whether a text is nothing but blanks and characters that cannot be seen. */
+export function isBlank(text) {
+  return tidy(text) === '';
+}
+
 export function sameName(a, b) {
   return tidy(a).toLocaleLowerCase('nb') === tidy(b).toLocaleLowerCase('nb');
 }
@@ -195,8 +200,9 @@ function drawProblem(state, week) {
 /** Text with the characters that cannot be seen taken out, and the blanks gathered into single spaces. */
 function tidy(text) {
   return String(text ?? '')
+    // Before NFC: a mark between a letter and its accent would otherwise keep them from joining.
+    .replace(/[\p{Default_Ignorable_Code_Point}\p{Cf}⠀]/gu, '')
     .normalize('NFC')
-    .replace(/[\p{Default_Ignorable_Code_Point}⠀]/gu, '')
     .replace(/[\p{Cc}\s]+/gu, ' ')
     .trim();
 }

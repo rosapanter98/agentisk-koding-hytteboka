@@ -6,7 +6,7 @@
 
 import { readFile } from 'node:fs/promises';
 import {
-  book, calendar, cancel, describe, drawWinner, enter, markDraw, readName, unmarkDraw, withdraw,
+  book, calendar, cancel, describe, drawWinner, enter, isBlank, markDraw, readName, unmarkDraw, withdraw,
 } from './cabin.js';
 import { calendarPage, drawPage, managerPage, messagePage } from './pages.js';
 import { currentWeek, isWeekId } from './weeks.js';
@@ -96,7 +96,7 @@ export function createApp({ store, now = () => new Date() }) {
     if (pathname === '/navn') {
       const typed = form.get('navn') ?? '';
       const forget = 'navn=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax';
-      if (typed.trim() === '') return goTo('/', { 'Set-Cookie': forget });
+      if (isBlank(typed)) return goTo('/', { 'Set-Cookie': forget });
       const newName = readName(typed);
       if (!newName) return showCalendar(400, { message: 'Navnet kan være på 60 tegn.', typedName: typed });
       const remember = `navn=${encodeURIComponent(newName)}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax`;
